@@ -115,6 +115,10 @@ impl Searcher {
                             Departure::Exact(time) => {
                                 let stop_time = tt.find_stop_time(ai, time);
                                 let next_stop_time = tt.find_stop_time(bi, time);
+                                let ride_time = next_stop_time
+                                    .raw
+                                    .checked_sub(stop_time.raw)
+                                    .expect("time subtract underflow");
 
                                 let route = StopRoute {
                                     bus: name.clone(),
@@ -127,10 +131,7 @@ impl Searcher {
                                         day,
                                         time: next_stop_time,
                                     },
-                                    duration: next_stop_time
-                                        .raw
-                                        .checked_sub(stop_time.raw)
-                                        .expect("time subtract underflow"),
+                                    duration: ride_time,
                                 };
                                 stop.routes.push(route);
                             }
@@ -199,9 +200,10 @@ impl Searcher {
             }
             let reached_stop_at = item.arrival;
             trace!(
-                "Reached stop {} at {}",
+                "Reached stop {} ({}) at {}",
+                item.stop,
                 self.stops[item.stop].name,
-                reached_stop_at,
+                reached_stop_at
             );
             let stop = &self.stops[item.stop];
             let dist_to_end = stop.loc.distance(to);
@@ -309,6 +311,7 @@ impl Searcher {
         };
 
         self.translate_stop_names(&mut route);
+        self.post_process_route(&mut route);
 
         Some(route)
     }
@@ -323,6 +326,24 @@ impl Searcher {
                 }
             }
         }
+    }
+
+    fn post_process_route(&self, route: &mut Route) {
+        // join adjacent bus segments that use the same bus
+        route.segments.dedup_by(|b, a| match (a, b) {
+            (&mut Segment::Bus(ref mut a), &mut Segment::Bus(ref mut b)) => {
+                if a.bus != b.bus {
+                    return false;
+                }
+                if a.start.offset(a.duration) != b.start {
+                    return false;
+                }
+                a.duration += b.duration;
+                a.to_stop = b.to_stop;
+                true
+            }
+            _ => false,
+        });
     }
 }
 

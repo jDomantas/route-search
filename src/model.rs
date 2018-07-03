@@ -293,7 +293,7 @@ impl Timestamp {
             Day::Sunday => Day::Tuesday,
         };
         let departure = Timestamp::new(departure_day, DayTime::new(0, 0));
-        self.compare_using_departure(other, departure) == Ordering::Less
+        self.compare_using_departure(other, departure) != Ordering::Greater
     }
 }
 

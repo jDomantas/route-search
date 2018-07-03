@@ -41,7 +41,7 @@ fn main() -> Res {
     };
     let time = model::DayTime::new(14, 30);
 
-    let route = searcher.find_route(trafi_office, bus_station, model::Day::Thursday, time);
+    let route = searcher.find_route(trafi_office, bus_station, model::Day::Tuesday, time);
     info!("Finished search, got route? {}", route.is_some());
 
     if let Some(route) = route {
