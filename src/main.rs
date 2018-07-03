@@ -39,7 +39,7 @@ fn main() -> Res {
         lat: 54.670592,
         lng: 25.282193,
     };
-    let time = model::DayTime::new(14, 30);
+    let time = model::DayTime::new(16, 30);
 
     let route = searcher.find_route(trafi_office, bus_station, model::Day::Tuesday, time);
     info!("Finished search, got route? {}", route.is_some());

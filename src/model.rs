@@ -49,6 +49,31 @@ pub struct Schedule {
     pub long_name: String,
     #[serde(rename = "Tracks")]
     pub tracks: Vec<Track>,
+    #[serde(rename = "TransportId")]
+    pub transport_type: TransportType,
+}
+
+#[derive(Deserialize, PartialEq, Eq, Debug, Copy, Clone)]
+pub enum TransportType {
+    #[serde(rename = "vln_trol")]
+    Trolley,
+    #[serde(rename = "vln_bus")]
+    Bus,
+    #[serde(rename = "vln_expressbus")]
+    Express,
+    #[serde(rename = "vln_nightbus")]
+    NightBus,
+}
+
+impl fmt::Display for TransportType {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match *self {
+            TransportType::Trolley => write!(f, "trolley"),
+            TransportType::Bus | TransportType::Express | TransportType::NightBus => {
+                write!(f, "bus")
+            }
+        }
+    }
 }
 
 #[derive(Deserialize, Debug, Clone)]
@@ -310,23 +335,40 @@ pub struct Route<'a> {
     pub arrival_time: DayTime,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Copy, Clone)]
 pub enum Segment<'a> {
-    Walk(WalkSegment),
+    Walk(WalkSegment<'a>),
     Bus(BusSegment<'a>),
 }
 
-#[derive(Debug, Clone)]
-pub struct WalkSegment {
-    pub from: Point,
-    pub to: Point,
+#[derive(Debug, Copy, Clone)]
+pub struct WalkSegment<'a> {
+    pub from: NamedPoint<'a>,
+    pub to: NamedPoint<'a>,
     pub start: DayTime,
     pub duration: u64,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Copy, Clone)]
+pub struct NamedPoint<'a> {
+    pub loc: Point,
+    pub name: Option<&'a str>,
+}
+
+impl<'a> fmt::Display for NamedPoint<'a> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        if let Some(name) = self.name {
+            write!(f, "{}", name)
+        } else {
+            write!(f, "({}; {})", self.loc.lat, self.loc.lng)
+        }
+    }
+}
+
+#[derive(Debug, Copy, Clone)]
 pub struct BusSegment<'a> {
     pub bus: &'a str,
+    pub typ: TransportType,
     pub from_stop: &'a str,
     pub to_stop: &'a str,
     pub start: DayTime,
@@ -342,17 +384,14 @@ impl<'a> fmt::Display for Segment<'a> {
     }
 }
 
-impl fmt::Display for WalkSegment {
+impl<'a> fmt::Display for WalkSegment<'a> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(
             f,
-            "Walk from ({}, {}) to ({}, {})
-    From {}, walking time: {} minutes",
-            self.from.lat,
-            self.from.lng,
-            self.to.lat,
-            self.to.lng,
+            "At {} - walk from {} to {}, walking time: {} minutes",
             self.start,
+            self.from,
+            self.to,
             (self.duration + 30) / 60,
         )
     }
@@ -362,12 +401,12 @@ impl<'a> fmt::Display for BusSegment<'a> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(
             f,
-            "Take bus {} from stop {} to {}
-    From {}, ride time: {} minutes",
+            "At {} - take {} {} from {} to {}, ride time: {} minutes",
+            self.start,
+            self.typ,
             self.bus,
             self.from_stop,
             self.to_stop,
-            self.start,
             (self.duration + 30) / 60,
         )
     }

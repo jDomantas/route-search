@@ -1,13 +1,15 @@
 use itertools::Itertools;
 use model::{
-    BusSegment, Day, DayTime, Departure, Point, Route, Schedule, Segment, Stop as MStop, Timestamp,
-    Track, WalkSegment, DAYS,
+    BusSegment, Day, DayTime, Departure, NamedPoint, Point, Route, Schedule, Segment,
+    Stop as MStop, Timestamp, Track, TransportType, WalkSegment, DAYS,
 };
 use std::cmp::Ordering;
 use std::collections::{BinaryHeap, HashMap};
 
 // Max walking distance, in meters.
 const MAX_WALK_DISTANCE: f64 = 500.0;
+const TRANSFER_DELAY: u64 = 3 * 60;
+const TRANSFER_PENALTY: u64 = 20 * 60;
 
 #[derive(Debug, Clone)]
 struct Stop {
@@ -19,6 +21,7 @@ struct Stop {
 #[derive(Debug, Clone)]
 struct StopRoute {
     bus: String,
+    typ: TransportType,
     next_stop: String,
     departure: Timestamp,
     arrival: Timestamp,
@@ -48,10 +51,10 @@ struct HeapItem<'a> {
 
 impl<'a> Ord for HeapItem<'a> {
     fn cmp(&self, other: &HeapItem<'a>) -> Ordering {
-        let order = self.arrival
-            .compare_using_departure(other.arrival, self.departure);
+        self.arrival
+            .compare_using_departure(other.arrival, self.departure)
         // we want earliest (smallest) items to come first, so they must be greatest
-        order.reverse()
+            .reverse()
     }
 }
 
@@ -95,11 +98,11 @@ impl Searcher {
 
     fn add_schedule(&mut self, schedule: Schedule) {
         for track in schedule.tracks {
-            self.add_track(schedule.name.clone(), track);
+            self.add_track(schedule.name.clone(), schedule.transport_type, track);
         }
     }
 
-    fn add_track(&mut self, name: String, track: Track) {
+    fn add_track(&mut self, name: String, typ: TransportType, track: Track) {
         for ((ai, a), (bi, b)) in track.stops.iter().enumerate().tuple_windows() {
             let stop = self.stops
                 .get_mut(a)
@@ -122,6 +125,7 @@ impl Searcher {
 
                                 let route = StopRoute {
                                     bus: name.clone(),
+                                    typ,
                                     next_stop: b.clone(),
                                     departure: Timestamp {
                                         day,
@@ -177,8 +181,14 @@ impl Searcher {
                 stop: name,
                 parent: None,
                 segment: Segment::Walk(WalkSegment {
-                    from,
-                    to: stop.loc,
+                    from: NamedPoint {
+                        loc: from,
+                        name: None,
+                    },
+                    to: NamedPoint {
+                        loc: stop.loc,
+                        name: Some(&stop.name),
+                    },
                     start: departure.time,
                     duration: walk_time,
                 }),
@@ -187,15 +197,7 @@ impl Searcher {
         }
 
         while let Some(item) = queue.pop() {
-            let should_replace = match times.get(item.stop) {
-                Some(info) => {
-                    item.arrival
-                        .compare_using_departure(info.arrival, departure)
-                        == Ordering::Less
-                }
-                None => true,
-            };
-            if !should_replace {
+            if times.contains_key(item.stop) {
                 continue;
             }
             let reached_stop_at = item.arrival;
@@ -224,10 +226,23 @@ impl Searcher {
 
             // check outgoing bus routes
             for route in &stop.routes {
-                if reached_stop_at.is_followed_by(route.departure) {
+                let transfer_time = match item.segment {
+                    Segment::Walk(_) => reached_stop_at.offset(TRANSFER_DELAY),
+                    Segment::Bus(segment) => {
+                        if segment.bus == &route.bus && reached_stop_at == route.departure {
+                            // this is exact same bus, so allow
+                            // "transfer" without delay
+                            reached_stop_at
+                        } else {
+                            reached_stop_at.offset(TRANSFER_DELAY)
+                        }
+                    }
+                };
+                if transfer_time.is_followed_by(route.departure) {
                     // we can use this route
                     let segment = Segment::Bus(BusSegment {
                         bus: &route.bus,
+                        typ: route.typ,
                         from_stop: &item.stop,
                         to_stop: &route.next_stop,
                         start: route.departure.time,
@@ -244,27 +259,35 @@ impl Searcher {
                 }
             }
 
-            // try to walk to nearby stops
-            for (id, next_stop) in &self.stops {
-                let distance = stop.loc.distance(next_stop.loc);
-                if distance > MAX_WALK_DISTANCE {
-                    continue;
+            // try to walk to nearby stops, but only if we haven't walked already
+            if let Segment::Bus(_) = item.segment {
+                for (id, next_stop) in &self.stops {
+                    let distance = stop.loc.distance(next_stop.loc);
+                    if distance > MAX_WALK_DISTANCE {
+                        continue;
+                    }
+                    let walk_time = walk_time(distance);
+                    let next_stop_arrival = reached_stop_at.offset(walk_time);
+                    let segment = Segment::Walk(WalkSegment {
+                        from: NamedPoint {
+                            loc: stop.loc,
+                            name: Some(&stop.name),
+                        },
+                        to: NamedPoint {
+                            loc: next_stop.loc,
+                            name: Some(&next_stop.name),
+                        },
+                        start: reached_stop_at.time,
+                        duration: walk_time,
+                    });
+                    let item = HeapItem {
+                        departure,
+                        arrival: next_stop_arrival,
+                        stop: id,
+                        parent: Some(item.stop),
+                        segment,
+                    };
                 }
-                let walk_time = walk_time(distance);
-                let next_stop_arrival = reached_stop_at.offset(walk_time);
-                let segment = Segment::Walk(WalkSegment {
-                    from: stop.loc,
-                    to: next_stop.loc,
-                    start: reached_stop_at.time,
-                    duration: walk_time,
-                });
-                let item = HeapItem {
-                    departure,
-                    arrival: next_stop_arrival,
-                    stop: id,
-                    parent: Some(item.stop),
-                    segment,
-                };
             }
         }
 
@@ -278,8 +301,14 @@ impl Searcher {
         let mut route_segments = Vec::new();
         // Segment of walking from the last stop to the end point.
         route_segments.push(Segment::Walk(WalkSegment {
-            from: self.stops[final_stop].loc,
-            to,
+            from: NamedPoint {
+                loc: self.stops[final_stop].loc,
+                name: None,
+            },
+            to: NamedPoint {
+                loc: to,
+                name: None,
+            },
             start: times[final_stop].arrival.time,
             duration: walk_time(self.stops[final_stop].loc.distance(to)),
         }));
@@ -340,6 +369,15 @@ impl Searcher {
                 }
                 a.duration += b.duration;
                 a.to_stop = b.to_stop;
+                true
+            }
+            _ => false,
+        });
+        // join adjacent walking segments
+        route.segments.dedup_by(|b, a| match (a, b) {
+            (&mut Segment::Walk(ref mut a), &mut Segment::Walk(ref mut b)) => {
+                a.duration += b.duration;
+                a.to = b.to;
                 true
             }
             _ => false,
