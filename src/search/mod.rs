@@ -9,7 +9,7 @@ use std::collections::{BinaryHeap, HashMap};
 // Max walking distance, in meters.
 const MAX_WALK_DISTANCE: f64 = 500.0;
 const TRANSFER_DELAY: u64 = 3 * 60;
-const TRANSFER_PENALTY: u64 = 20 * 60;
+const TRANSFER_PENALTY: u64 = 2 * 60;
 
 #[derive(Debug, Clone)]
 struct Stop {
@@ -36,6 +36,7 @@ pub struct Searcher {
 struct StopInfo<'a> {
     walk_finish: Option<Timestamp>,
     arrival: Timestamp,
+    transfers: u64,
     arriving_segment: Segment<'a>,
     parent: Option<&'a str>,
 }
@@ -44,17 +45,30 @@ struct StopInfo<'a> {
 struct HeapItem<'a> {
     departure: Timestamp,
     arrival: Timestamp,
+    transfers: u64,
     stop: &'a str,
     parent: Option<&'a str>,
     segment: Segment<'a>,
 }
 
+fn compare_points(
+    departure: Timestamp,
+    first: (Timestamp, u64),
+    second: (Timestamp, u64),
+) -> Ordering {
+    let first = first.0.offset(TRANSFER_PENALTY * first.1);
+    let second = second.0.offset(TRANSFER_PENALTY * second.1);
+    first.cmp(&second)
+}
+
 impl<'a> Ord for HeapItem<'a> {
     fn cmp(&self, other: &HeapItem<'a>) -> Ordering {
-        self.arrival
-            .compare_using_departure(other.arrival, self.departure)
         // we want earliest (smallest) items to come first, so they must be greatest
-            .reverse()
+        compare_points(
+            self.departure,
+            (self.arrival, self.transfers),
+            (other.arrival, other.transfers),
+        ).reverse()
     }
 }
 
@@ -177,6 +191,7 @@ impl Searcher {
             let heap_item = HeapItem {
                 departure,
                 arrival,
+                transfers: 0,
                 stop: name,
                 parent: None,
                 segment: Segment::Walk(WalkSegment {
@@ -201,10 +216,11 @@ impl Searcher {
             }
             let reached_stop_at = item.arrival;
             trace!(
-                "Reached stop {} ({}) at {}",
+                "Reached stop {} ({}) at {} ({} transfers)",
                 item.stop,
                 self.stops[item.stop].name,
-                reached_stop_at
+                reached_stop_at,
+                item.transfers,
             );
             let stop = &self.stops[item.stop];
             let dist_to_end = stop.loc.distance(to);
@@ -217,6 +233,7 @@ impl Searcher {
                 item.stop,
                 StopInfo {
                     arrival: reached_stop_at,
+                    transfers: item.transfers,
                     arriving_segment: item.segment,
                     parent: item.parent,
                     walk_finish,
@@ -225,18 +242,18 @@ impl Searcher {
 
             // check outgoing bus routes
             for route in &stop.routes {
-                let transfer_time = match item.segment {
-                    Segment::Walk(_) => reached_stop_at.offset(TRANSFER_DELAY),
+                let is_transfering = match item.segment {
+                    Segment::Walk(_) => true,
                     Segment::Bus(segment) => {
-                        if segment.bus == &route.bus && reached_stop_at == route.departure {
-                            // this is exact same bus, so allow
-                            // "transfer" without delay
-                            reached_stop_at
-                        } else {
-                            reached_stop_at.offset(TRANSFER_DELAY)
-                        }
+                        segment.bus != &route.bus || reached_stop_at != route.departure
                     }
                 };
+                let transfer_time = if is_transfering {
+                    reached_stop_at.offset(TRANSFER_DELAY)
+                } else {
+                    reached_stop_at
+                };
+                let transfers = item.transfers + is_transfering as u64;
                 if transfer_time.is_followed_by(route.departure) {
                     // we can use this route
                     let segment = Segment::Bus(BusSegment {
@@ -250,6 +267,7 @@ impl Searcher {
                     let item = HeapItem {
                         departure,
                         arrival: route.arrival,
+                        transfers,
                         stop: &route.next_stop,
                         parent: Some(item.stop),
                         segment,
@@ -282,6 +300,7 @@ impl Searcher {
                     let item = HeapItem {
                         departure,
                         arrival: next_stop_arrival,
+                        transfers: item.transfers,
                         stop: id,
                         parent: Some(item.stop),
                         segment,
@@ -290,10 +309,10 @@ impl Searcher {
             }
         }
 
-        let (&final_stop, arrival_time) = times
+        let (&final_stop, arrival_time, transfers) = times
             .iter()
-            .flat_map(|(stop, info)| Some((stop, info.walk_finish?)))
-            .min_by(|a, b| a.1.compare_using_departure(b.1, departure))?;
+            .flat_map(|(stop, info)| Some((stop, info.walk_finish?, info.transfers)))
+            .min_by(|a, b| compare_points(departure, (a.1, a.2), (b.1, b.2)))?;
 
         debug!("Found route, arrived at {}", arrival_time);
 
@@ -302,7 +321,7 @@ impl Searcher {
         route_segments.push(Segment::Walk(WalkSegment {
             from: NamedPoint {
                 loc: self.stops[final_stop].loc,
-                name: None,
+                name: Some(&self.stops[final_stop].name),
             },
             to: NamedPoint {
                 loc: to,
