@@ -44,6 +44,15 @@ fn main() -> Res {
     let route = searcher.find_route(trafi_office, bus_station, model::Day::Thursday, time);
     info!("Finished search, got route? {}", route.is_some());
 
+    if let Some(route) = route {
+        println!("Got route");
+        for segment in &route.segments {
+            println!("{}", segment);
+        }
+    } else {
+        println!("No route found");
+    }
+
     Ok(())
 }
 

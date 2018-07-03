@@ -266,20 +266,63 @@ impl Searcher {
             }
         }
 
-        let arrival = times
-            .values()
-            .flat_map(|info| info.walk_finish)
-            .min_by(|&a, &b| a.compare_using_departure(b, departure));
+        let (&final_stop, arrival_time) = times
+            .iter()
+            .flat_map(|(stop, info)| Some((stop, info.walk_finish?)))
+            .min_by(|a, b| a.1.compare_using_departure(b.1, departure))?;
 
-        if let Some(time) = arrival {
-            debug!("Arrived at the end at {}", time);
-        } else {
-            debug!("No route found");
+        debug!("Found route, arrived at {}", arrival_time);
+
+        let mut route_segments = Vec::new();
+        // Segment of walking from the last stop to the end point.
+        route_segments.push(Segment::Walk(WalkSegment {
+            from: self.stops[final_stop].loc,
+            to,
+            start: times[final_stop].arrival.time,
+            duration: walk_time(self.stops[final_stop].loc.distance(to)),
+        }));
+
+        let mut current = final_stop;
+        let departure_time;
+
+        loop {
+            let info = times.remove(current).unwrap();
+            route_segments.push(info.arriving_segment);
+            match info.parent {
+                Some(parent) => current = parent,
+                None => {
+                    // segment of walking from the start point to first stop
+                    let stop_pos = self.stops[current].loc;
+                    let walk_time = walk_time(from.distance(stop_pos));
+                    departure_time = info.arrival.neg_offset(walk_time).time;
+                    break;
+                }
+            }
         }
 
-        // let mut route_segments = Vec::new();
-        // unimplemented!("route reconstruction")
-        None
+        route_segments.reverse();
+
+        let mut route = Route {
+            segments: route_segments,
+            departure_time,
+            arrival_time: arrival_time.time,
+        };
+
+        self.translate_stop_names(&mut route);
+
+        Some(route)
+    }
+
+    fn translate_stop_names<'a>(&'a self, route: &mut Route<'a>) {
+        for segment in &mut route.segments {
+            match *segment {
+                Segment::Walk(_) => {}
+                Segment::Bus(ref mut segment) => {
+                    segment.from_stop = &self.stops[segment.from_stop].name;
+                    segment.to_stop = &self.stops[segment.to_stop].name;
+                }
+            }
+        }
     }
 }
 

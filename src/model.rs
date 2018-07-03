@@ -133,6 +133,12 @@ impl DayTime {
             raw: self.raw + offset,
         }
     }
+
+    pub fn neg_offset(&self, offset: u64) -> DayTime {
+        DayTime {
+            raw: self.raw - offset,
+        }
+    }
 }
 
 impl fmt::Display for DayTime {
@@ -243,6 +249,13 @@ impl Timestamp {
         }
     }
 
+    pub fn neg_offset(&self, offset: u64) -> Timestamp {
+        Timestamp {
+            day: self.day,
+            time: self.time.neg_offset(offset),
+        }
+    }
+
     pub fn compare_using_departure(&self, other: Timestamp, departure: Timestamp) -> Ordering {
         if *self == other {
             Ordering::Equal
@@ -285,7 +298,7 @@ impl fmt::Display for Timestamp {
 
 #[derive(Debug, Clone)]
 pub struct Route<'a> {
-    pub segment: Vec<Segment<'a>>,
+    pub segments: Vec<Segment<'a>>,
     pub departure_time: DayTime,
     pub arrival_time: DayTime,
 }
@@ -311,6 +324,46 @@ pub struct BusSegment<'a> {
     pub to_stop: &'a str,
     pub start: DayTime,
     pub duration: u64,
+}
+
+impl<'a> fmt::Display for Segment<'a> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match *self {
+            Segment::Walk(ref seg) => write!(f, "{}", seg),
+            Segment::Bus(ref seg) => write!(f, "{}", seg),
+        }
+    }
+}
+
+impl fmt::Display for WalkSegment {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(
+            f,
+            "Walk from ({}, {}) to ({}, {})
+    From {}, walking time: {} minutes",
+            self.from.lat,
+            self.from.lng,
+            self.to.lat,
+            self.to.lng,
+            self.start,
+            (self.duration + 30) / 60,
+        )
+    }
+}
+
+impl<'a> fmt::Display for BusSegment<'a> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(
+            f,
+            "Take bus {} from stop {} to {}
+    From {}, ride time: {} minutes",
+            self.bus,
+            self.from_stop,
+            self.to_stop,
+            self.start,
+            (self.duration + 30) / 60,
+        )
+    }
 }
 
 #[cfg(test)]
