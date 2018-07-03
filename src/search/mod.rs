@@ -1,6 +1,6 @@
 use itertools::Itertools;
 use model::{
-    BusSegment, Day, DayTime, Departure, NamedPoint, Point, Route, Schedule, Segment,
+    BusSegment, Departure, NamedPoint, Point, Route, Schedule, Segment,
     Stop as MStop, Timestamp, Track, TransportType, WalkSegment, DAYS,
 };
 use std::cmp::Ordering;
@@ -58,7 +58,7 @@ fn compare_points(
 ) -> Ordering {
     let first = first.0.offset(TRANSFER_PENALTY * first.1);
     let second = second.0.offset(TRANSFER_PENALTY * second.1);
-    first.cmp(&second)
+    first.compare_using_departure(second, departure)
 }
 
 impl<'a> Ord for HeapItem<'a> {
@@ -305,11 +305,12 @@ impl Searcher {
                         parent: Some(item.stop),
                         segment,
                     };
+                    queue.push(item);
                 }
             }
         }
 
-        let (&final_stop, arrival_time, transfers) = times
+        let (&final_stop, arrival_time, _) = times
             .iter()
             .flat_map(|(stop, info)| Some((stop, info.walk_finish?, info.transfers)))
             .min_by(|a, b| compare_points(departure, (a.1, a.2), (b.1, b.2)))?;

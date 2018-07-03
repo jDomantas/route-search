@@ -1,6 +1,5 @@
 use model::{Schedule, Stop};
 use serde_json;
-use std::error::Error;
 use Res;
 
 pub fn stops(json: &str) -> Res<Vec<Stop>> {

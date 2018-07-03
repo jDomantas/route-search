@@ -1,5 +1,3 @@
-#![allow(unused)]
-
 #[macro_use]
 extern crate serde_derive;
 extern crate itertools;
@@ -36,7 +34,7 @@ fn main() -> Res {
     let departure = Timestamp::new(Day::Tuesday, DayTime::new(23, 10));
 
     info!("Starting route search");
-    let route = searcher.find_route(trafi_office, home, departure);
+    let route = searcher.find_route(trafi_office, bus_station, departure);
     info!("Finished search, got route? {}", route.is_some());
 
     if let Some(route) = route {
