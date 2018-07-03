@@ -13,7 +13,7 @@ pub mod de;
 pub mod model;
 pub mod search;
 
-use model::{Schedule, Stop};
+use model::{Day, DayTime, Point, Schedule, Stop, Timestamp};
 use std::error::Error;
 
 type Res<T = ()> = Result<T, Box<Error>>;
@@ -31,17 +31,17 @@ fn main() -> Res {
     debug!("Built searcher");
 
     info!("Starting route search");
-    let trafi_office = model::Point {
+    let trafi_office = Point {
         lat: 54.684885,
         lng: 25.281161,
     };
-    let bus_station = model::Point {
+    let bus_station = Point {
         lat: 54.670592,
         lng: 25.282193,
     };
-    let time = model::DayTime::new(16, 30);
+    let departure = Timestamp::new(Day::Tuesday, DayTime::new(16, 30));
 
-    let route = searcher.find_route(trafi_office, bus_station, model::Day::Tuesday, time);
+    let route = searcher.find_route(trafi_office, bus_station, departure);
     info!("Finished search, got route? {}", route.is_some());
 
     if let Some(route) = route {

@@ -163,9 +163,8 @@ impl Searcher {
         );
     }
 
-    pub fn find_route(&self, from: Point, to: Point, day: Day, time: DayTime) -> Option<Route> {
+    pub fn find_route(&self, from: Point, to: Point, departure: Timestamp) -> Option<Route> {
         let mut times = HashMap::<&str, StopInfo>::new();
-        let departure = Timestamp::new(day, time);
         let mut queue = BinaryHeap::new();
 
         for (name, stop) in &self.stops {
