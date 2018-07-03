@@ -30,18 +30,13 @@ fn main() -> Res {
     let searcher = search::Searcher::new(stops, schedules);
     debug!("Built searcher");
 
-    info!("Starting route search");
-    let trafi_office = Point {
-        lat: 54.684885,
-        lng: 25.281161,
-    };
-    let bus_station = Point {
-        lat: 54.670592,
-        lng: 25.282193,
-    };
-    let departure = Timestamp::new(Day::Tuesday, DayTime::new(16, 30));
+    let trafi_office = Point { lat: 54.684885, lng: 25.281161 };
+    let bus_station = Point { lat: 54.670592, lng: 25.282193 };
+    let home = Point { lat: 54.674775, lng: 25.079873 };
+    let departure = Timestamp::new(Day::Tuesday, DayTime::new(23, 10));
 
-    let route = searcher.find_route(trafi_office, bus_station, departure);
+    info!("Starting route search");
+    let route = searcher.find_route(trafi_office, home, departure);
     info!("Finished search, got route? {}", route.is_some());
 
     if let Some(route) = route {

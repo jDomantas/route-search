@@ -9,7 +9,7 @@ use std::collections::{BinaryHeap, HashMap};
 // Max walking distance, in meters.
 const MAX_WALK_DISTANCE: f64 = 500.0;
 const TRANSFER_DELAY: u64 = 3 * 60;
-const TRANSFER_PENALTY: u64 = 2 * 60;
+const TRANSFER_PENALTY: u64 = 1 * 60;
 
 #[derive(Debug, Clone)]
 struct Stop {
