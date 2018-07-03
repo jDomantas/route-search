@@ -143,8 +143,15 @@ impl DayTime {
 
 impl fmt::Display for DayTime {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        let hours = self.raw / 3600;
         let minutes = self.raw / 60 % 60;
+        let hours = {
+            let h = self.raw / 3600 % 24;
+            if h == 0 && minutes == 0 {
+                24
+            } else {
+                h
+            }
+        };
         write!(f, "{:02}:{:02}", hours, minutes)
     }
 }
